@@ -21,6 +21,44 @@ Deep-only computer vision pipeline for:
 - RANSAC fundamental matrix estimation
 - interactive local-affine point transfer (K-nearest deep matches to the click)
 
+## Architecture
+
+![Architecture diagram](assets/architecture.jpg)
+
+The system is organized as a linear processing pipeline with one interactive
+endpoint:
+
+1. **Input loader**  
+   `src/frame_loader.py` loads frame metadata and images from `drones_images_input/`.
+
+2. **Preprocessing / overlay removal**  
+   `src/preprocessing.py` builds overlay masks from `config/overlay_regions.json`
+   and produces cleaned frames in `outputs/clean_frames/`.
+
+3. **Feature extraction (deep-only)**  
+   `src/features.py` delegates to `src/deep_features.py` to extract SuperPoint
+   keypoints and descriptors on cleaned frames.
+
+4. **Pairwise matching (deep-only)**  
+   `src/matching.py` delegates to `src/deep_matching.py`, where LightGlue
+   matches SuperPoint descriptors between frame pairs.
+
+5. **Epipolar geometry estimation**  
+   `src/geometry.py` estimates the fundamental matrix with RANSAC and returns
+   inlier-supported geometry per pair.
+
+6. **Interactive transfer service**  
+   `scripts/main_interactive_transfer.py` uses:
+   - SuperPoint + LightGlue matches
+   - RANSAC fundamental matrix
+   - local affine transfer from `src/local_transfer.py`
+   
+   to transfer a clicked source pixel into each target frame.
+
+7. **Visualization and persistence**  
+   `src/transfer.py` handles transfer result visualization, while scripts write
+   CSV/image artifacts under `outputs/`.
+
 ## Project Structure
 
 ```text
@@ -84,47 +122,6 @@ python scripts/pipeline/main_interactive_transfer.py --source-index 1
 - `outputs/phase5_ransac_stats.csv`
 - `outputs/phase5_inliers_*.png`
 - `outputs/YYYYMMDD_HHMMSS/transfer_results.csv`
-
-## Architecture
-
-![Architecture diagram](assets/architecture.jpg)
-
-The system is organized as a linear processing pipeline with one interactive
-endpoint:
-
-1. **Input loader**  
-   `src/frame_loader.py` loads frame metadata and images from `drones_images_input/`.
-
-2. **Preprocessing / overlay removal**  
-   `src/preprocessing.py` builds overlay masks from `config/overlay_regions.json`
-   and produces cleaned frames in `outputs/clean_frames/`.
-
-3. **Feature extraction (deep-only)**  
-   `src/features.py` delegates to `src/deep_features.py` to extract SuperPoint
-   keypoints and descriptors on cleaned frames.
-
-4. **Pairwise matching (deep-only)**  
-   `src/matching.py` delegates to `src/deep_matching.py`, where LightGlue
-   matches SuperPoint descriptors between frame pairs.
-
-5. **Epipolar geometry estimation**  
-   `src/geometry.py` estimates the fundamental matrix with RANSAC and returns
-   inlier-supported geometry per pair.
-
-6. **Interactive transfer service**  
-   `scripts/main_interactive_transfer.py` uses:
-   - SuperPoint + LightGlue matches
-   - RANSAC fundamental matrix
-   - local affine transfer from `src/local_transfer.py`
-   
-   to transfer a clicked source pixel into each target frame.
-
-7. **Visualization and persistence**  
-   `src/transfer.py` handles transfer result visualization, while scripts write
-   CSV/image artifacts under `outputs/`.
-
-Architecture diagram placeholder (add your image later):  
-`[Architecture image goes here]`
 
 ## Validation
 
