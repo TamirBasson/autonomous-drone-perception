@@ -19,9 +19,7 @@ Deep-only computer vision pipeline for:
 - SuperPoint feature extraction
 - LightGlue matching
 - RANSAC fundamental matrix estimation
-- interactive local-affine point transfer
-
-SIFT/classical matchers, NCC baseline transfer, and telemetry/Phase 7 paths are removed.
+- interactive local-affine point transfer (K-nearest deep matches to the click)
 
 ## Project Structure
 
@@ -88,6 +86,8 @@ python scripts/pipeline/main_interactive_transfer.py --source-index 1
 - `outputs/YYYYMMDD_HHMMSS/transfer_results.csv`
 
 ## Architecture
+
+![Architecture diagram](assets/architecture.jpg)
 
 The system is organized as a linear processing pipeline with one interactive
 endpoint:
