@@ -76,8 +76,8 @@ from src import (  # noqa: E402
 
 
 INPUT_FOLDER = REPO_ROOT / "drones_images_input"
-CLEAN_FOLDER = REPO_ROOT / "outputs" / "clean_frames"
-OUTPUT_ROOT = REPO_ROOT / "outputs"
+CLEAN_FOLDER = REPO_ROOT  / "outputs" / "clean_frames"
+OUTPUT_ROOT = REPO_ROOT  / "outputs"
 DEFAULT_REGIONS_JSON = REPO_ROOT / "config" / "overlay_regions.json"
 
 GRID_ROWS = 4
@@ -89,6 +89,10 @@ MIN_BAND_MATCHES_TO_SHOW = 8
 MIN_BAND_MATCHES_BY_SOURCE_INDEX = {
     8: 4,
 }
+OLD_SOURCE_INDEX_TO_PROMOTE = 6
+NEW_SOURCE_INDEX_POSITION = 1
+PROMOTED_FRAME_NAME = "2026-02-15_16-35-56_06892.png"
+PROMOTED_FRAME_TARGET_INDEX = 3
 
 
 # ---------------------------------------------------------------------- #
@@ -191,6 +195,27 @@ def _save_source_image(img: np.ndarray, point: Tuple[int, int],
     cv2.imwrite(str(out_path), canvas)
 
 
+def _reorder_frames_for_indexing(frames: List) -> List:
+    """Apply hardcoded index remaps for interactive source selection."""
+    n = len(frames)
+    moved = list(frames)
+
+    # Legacy remap: old index 6 -> new index 1
+    if n > OLD_SOURCE_INDEX_TO_PROMOTE:
+        promoted = moved.pop(OLD_SOURCE_INDEX_TO_PROMOTE)
+        insert_at = min(max(NEW_SOURCE_INDEX_POSITION, 0), len(moved))
+        moved.insert(insert_at, promoted)
+
+    # Requested remap: specific frame name -> index 3
+    idx_by_name = next((i for i, f in enumerate(moved) if f.name == PROMOTED_FRAME_NAME), None)
+    if idx_by_name is not None:
+        promoted_named = moved.pop(idx_by_name)
+        insert_at = min(max(PROMOTED_FRAME_TARGET_INDEX, 0), len(moved))
+        moved.insert(insert_at, promoted_named)
+
+    return moved
+
+
 def _extract_band_match_count(note: str) -> Optional[int]:
     """Extract the kept band-match count from a transfer note string.
 
@@ -257,7 +282,7 @@ def main() -> int:
         print(f"ERROR: clean frames not found at {CLEAN_FOLDER}. Run Phase 2 first.")
         return 1
 
-    frames = load_frames(INPUT_FOLDER)
+    frames = _reorder_frames_for_indexing(load_frames(INPUT_FOLDER))
     if not frames:
         print(f"ERROR: no frames found under {INPUT_FOLDER}.")
         return 1
