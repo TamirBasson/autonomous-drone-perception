@@ -22,7 +22,7 @@ Design notes
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import List
 
 import cv2
 import numpy as np
@@ -159,25 +159,3 @@ def match_pair_deep(
         fs_a_filtered=fs_a,
         fs_b_filtered=fs_b,
     )
-
-
-def match_frame_pairs_deep(
-    feature_sets: Sequence[FeatureSet],
-    pairs: Sequence[Tuple[int, int]],
-    features: str = "superpoint",
-    progress: bool = False,
-) -> List[FrameMatchResult]:
-    """Run `match_pair_deep` over a list of (i, j) index pairs."""
-    results: List[FrameMatchResult] = []
-    for k, (i, j) in enumerate(pairs):
-        if i == j:
-            continue
-        res = match_pair_deep(
-            feature_sets[i], feature_sets[j],
-            idx_a=i, idx_b=j, features=features,
-        )
-        results.append(res)
-        if progress:
-            print(f"  [{k + 1:3d}/{len(pairs)}] ({i},{j})  "
-                  f"lightglue_matches={res.num_tentative:4d}")
-    return results

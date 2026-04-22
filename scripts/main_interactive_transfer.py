@@ -2,12 +2,8 @@
 to every other frame using the existing offline pipeline.
 
 Pipeline per target frame:
-    1. Feature extraction on cleaned source/target frame
-         * `--method superpoint` (default) -> SuperPoint
-         * `--method sift`                 -> SIFT (masked by overlay regions)
-    2. Pairwise descriptor matching
-         * SuperPoint  -> LightGlue (learned matcher; SuperGlue-family)
-         * SIFT        -> FLANN + Lowe's ratio + grid filter
+    1. Feature extraction on cleaned source/target frame (SuperPoint).
+    2. Pairwise descriptor matching (LightGlue).
     3. RANSAC fundamental-matrix estimation (defines the epipolar line).
     4. Local-affine point transfer (see `src.local_transfer`):
          click -> deep matches -> epipolar-band filter (soft, ~20 px)
@@ -26,7 +22,6 @@ Usage (from repository root):
     python scripts/main_interactive_transfer.py
     python scripts/main_interactive_transfer.py --source-index 4
     python scripts/main_interactive_transfer.py --epipolar-band 25 --k-neighbors 12
-    python scripts/main_interactive_transfer.py --method sift
 
 Controls:
     Left-click inside the source image to pick a pixel.
@@ -58,20 +53,14 @@ from src import (  # noqa: E402
     DEFAULT_OVERLAY_REGIONS,
     CALIBRATION_SIZE,
     load_regions_from_json,
-    DEFAULT_RATIO,
-    SUPPORTED_PIPELINES,
     match_pair,
     DEFAULT_F_METHOD,
     DEFAULT_F_THRESHOLD,
     DEFAULT_F_CONFIDENCE,
     estimate_fundamental,
-    DEFAULT_PATCH_SIZE,
-    DEFAULT_STEP,
-    transfer_point,
     draw_transfer,
     transfer_point_local_affine,
     DEFAULT_EPIPOLAR_BAND_PX,
-    DEFAULT_K_NEIGHBORS,
 )
 
 
@@ -242,17 +231,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Interactive pixel transfer: click in source -> transfer to all frames."
     )
+    parser.add_argument(
+        "--method",
+        choices=("superpoint",),
+        default="superpoint",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--source-index", type=int, default=0,
                         help="Index of the source frame in the loaded list (default: 0).")
     parser.add_argument("--min-inliers", type=int, default=DEFAULT_MIN_INLIERS,
                         help=f"Minimum RANSAC inliers to accept F (default: {DEFAULT_MIN_INLIERS}).")
     parser.add_argument("--regions", type=Path, default=None,
                         help="Overlay regions JSON (default: config/overlay_regions.json).")
-    parser.add_argument("--method", default="superpoint", choices=SUPPORTED_PIPELINES,
-                        help="Feature/matching pipeline: "
-                             "'superpoint' (SuperPoint + LightGlue, default; the "
-                             "primary signal for the new pipeline) or "
-                             "'sift' (classical SIFT + FLANN/ratio + grid filter).")
     parser.add_argument("--ransac-method", default=DEFAULT_F_METHOD,
                         help=f"RANSAC variant for F estimation "
                              f"(default: {DEFAULT_F_METHOD}).")
@@ -293,13 +283,12 @@ def main() -> int:
 
     src_idx = args.source_index
     src_frame = frames[src_idx]
-    pipeline = args.method.lower()
     min_band_matches_to_show = MIN_BAND_MATCHES_BY_SOURCE_INDEX.get(
         src_idx, MIN_BAND_MATCHES_TO_SHOW
     )
     print(f"Frames           : {len(frames)}")
     print(f"Source frame     : [{src_idx}] {src_frame.name}")
-    print(f"Pipeline         : {pipeline} -> local-affine transfer (no NCC)")
+    print("Pipeline         : superpoint + lightglue -> local-affine transfer")
     print(f"Epipolar band    : +-{args.epipolar_band:.1f} px  | "
           f"K neighbors: {args.k_neighbors}")
     print(f"RANSAC           : method={args.ransac_method}  threshold={args.threshold}px  "
@@ -339,10 +328,9 @@ def main() -> int:
     # ------------------------------------------------------------------ #
     # Feature extraction (shared across all pairs)                        #
     # ------------------------------------------------------------------ #
-    feat_label = "SIFT" if pipeline == "sift" else "SuperPoint"
-    print(f"\nExtracting {feat_label} features on cleaned frames ...")
+    print("\nExtracting SuperPoint features on cleaned frames ...")
     feature_sets = extract_features_for_frames(
-        frames, method=pipeline, use_mask=True,
+        frames, method="superpoint", use_mask=True,
         regions=regions, calibration_size=cal, source_dir=CLEAN_FOLDER,
     )
 
@@ -387,10 +375,10 @@ def main() -> int:
 
         mr = match_pair(
             fs_a, fs_b, idx_a=src_idx, idx_b=tgt_idx,
-            method="flann", ratio=DEFAULT_RATIO, mutual=False,
-            grid_filter=True,
+            method="lightglue", ratio=0.0, mutual=True,
+            grid_filter=False,
             grid_rows=GRID_ROWS, grid_cols=GRID_COLS, grid_max_per_cell=GRID_MAX,
-            pipeline=pipeline,
+            pipeline="superpoint",
         )
         rr = estimate_fundamental(
             mr, method=args.ransac_method, threshold=args.threshold,
@@ -421,30 +409,6 @@ def main() -> int:
             epipolar_band_px=args.epipolar_band,
             k_neighbors=args.k_neighbors,
         )
-
-        # Strict fallback: if local-affine fails specifically because the
-        # epipolar-band gate kept fewer than 2 matches, run the original
-        # NCC-on-epipolar-line transfer with fixed baseline defaults.
-        is_band_failure = (
-            (not result.success)
-            and ("band_filter(" in (result.note or ""))
-            and ("(< 2)" in (result.note or ""))
-        )
-        if is_band_failure:
-            fallback = transfer_point(
-                source_pixel=(float(u), float(v)),
-                image_src=img_src,
-                image_dst=img_tgt,
-                F=rr.F,
-                source_is_a=True,
-                patch_size=DEFAULT_PATCH_SIZE,
-                step=DEFAULT_STEP,
-            )
-            fallback.note = (
-                f"fallback_ncc: {fallback.note} "
-                f"(from local_affine failure: {result.note})"
-            )
-            result = fallback
 
         out_png = out_dir / f"target_{tgt_idx:02d}_{tgt_stem}.png"
         band_kept = _extract_band_match_count(result.note)

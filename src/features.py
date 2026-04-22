@@ -1,11 +1,4 @@
-"""Phase 3 feature extraction.
-
-Scope is intentionally limited to keypoint + descriptor extraction on
-cleaned frames. Matching is handled by a later module.
-
-Default detector is SIFT (robust to scale/rotation, no extra dependencies).
-AKAZE is exposed as an alternative.
-"""
+"""Phase 3 feature extraction (SuperPoint only)."""
 
 from __future__ import annotations
 
@@ -25,7 +18,7 @@ from .preprocessing import (
 )
 
 
-SUPPORTED_METHODS = ("sift", "akaze", "superpoint")
+SUPPORTED_METHODS = ("superpoint",)
 
 
 @dataclass
@@ -40,16 +33,6 @@ class FeatureSet:
     @property
     def num_keypoints(self) -> int:
         return len(self.keypoints)
-
-
-def _make_detector(method: str):
-    """Instantiate an OpenCV feature detector for the given method."""
-    m = method.lower()
-    if m == "sift":
-        return cv2.SIFT_create()
-    if m == "akaze":
-        return cv2.AKAZE_create()
-    raise ValueError(f"Unsupported method {method!r}; expected one of {SUPPORTED_METHODS}")
 
 
 def build_detection_mask(
@@ -68,7 +51,7 @@ def build_detection_mask(
 
 def extract_features(
     image: np.ndarray,
-    method: str = "sift",
+    method: str = "superpoint",
     mask: Optional[np.ndarray] = None,
     frame_name: str = "",
 ) -> FeatureSet:
@@ -77,42 +60,21 @@ def extract_features(
     Parameters
     ----------
     image : BGR or grayscale uint8 image.
-    method : "sift", "akaze", or "superpoint".
+    method : must be "superpoint".
     mask : optional uint8 mask (255 = allowed, 0 = ignored).
     frame_name : used only for bookkeeping / debug prints.
 
-    Note on "superpoint"
-    --------------------
-    Dispatches to `src.deep_features.extract_superpoint` (lazy import so
-    torch/lightglue are not required for the SIFT/AKAZE paths). Returns
-    a `FeatureSet` with 256-D float32 descriptors — downstream code that
-    treats descriptor-dim as opaque (matching / geometry / transfer) is
-    unaffected.
+    Dispatches to `src.deep_features.extract_superpoint` (lazy import).
     """
-    if method.lower() == "superpoint":
-        from .deep_features import extract_superpoint
-        return extract_superpoint(image, mask=mask, frame_name=frame_name)
-
-    if image.ndim == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = image
-
-    detector = _make_detector(method)
-    keypoints, descriptors = detector.detectAndCompute(gray, mask)
-
-    return FeatureSet(
-        frame_name=frame_name,
-        method=method.lower(),
-        image_shape=gray.shape[:2],
-        keypoints=list(keypoints) if keypoints is not None else [],
-        descriptors=descriptors,
-    )
+    if method.lower() != "superpoint":
+        raise ValueError("Only 'superpoint' is supported in this project version.")
+    from .deep_features import extract_superpoint
+    return extract_superpoint(image, mask=mask, frame_name=frame_name)
 
 
 def extract_features_for_frames(
     frames: Iterable[Frame],
-    method: str = "sift",
+    method: str = "superpoint",
     use_mask: bool = True,
     regions: Sequence[OverlayRegion] = DEFAULT_OVERLAY_REGIONS,
     calibration_size: Tuple[int, int] = CALIBRATION_SIZE,
@@ -154,61 +116,9 @@ def extract_features_for_frames(
     return results
 
 
-def apply_grid_filter(
-    fs: FeatureSet,
-    grid_rows: int = 4,
-    grid_cols: int = 5,
-    max_per_cell: int = 15,
-) -> FeatureSet:
-    """Return a new FeatureSet keeping at most max_per_cell keypoints per
-    spatial grid cell, selected by highest SIFT response.
-
-    This enforces spatial diversity before matching: dense regions (e.g. the
-    horizon/treeline band) are sub-sampled to the same quota as sparse regions
-    (sky, bare ground), redistributing the match budget across the full image.
-
-    The input FeatureSet is not mutated. Descriptor rows are re-indexed to
-    match the surviving keypoints so the returned FeatureSet is self-consistent
-    and can be passed directly to a matcher.
-
-    Parameters
-    ----------
-    fs            : source FeatureSet (keypoints + descriptors must be set).
-    grid_rows     : number of rows in the spatial grid.
-    grid_cols     : number of columns in the spatial grid.
-    max_per_cell  : maximum keypoints to retain per cell (by response strength).
-    """
-    if not fs.keypoints or fs.descriptors is None:
-        return fs  # nothing to filter; return as-is
-
-    h, w = fs.image_shape
-    cell_h = h / grid_rows
-    cell_w = w / grid_cols
-
-    kept_indices: List[int] = []
-    for row in range(grid_rows):
-        y0, y1 = row * cell_h, (row + 1) * cell_h
-        for col in range(grid_cols):
-            x0, x1 = col * cell_w, (col + 1) * cell_w
-            cell_kp_idx = [
-                i for i, kp in enumerate(fs.keypoints)
-                if x0 <= kp.pt[0] < x1 and y0 <= kp.pt[1] < y1
-            ]
-            # sort by descending response; keep the strongest max_per_cell
-            cell_kp_idx.sort(key=lambda i: fs.keypoints[i].response, reverse=True)
-            kept_indices.extend(cell_kp_idx[:max_per_cell])
-
-    kept_indices = sorted(set(kept_indices))
-    filtered_kps = [fs.keypoints[i] for i in kept_indices]
-    filtered_desc = fs.descriptors[kept_indices]
-
-    return FeatureSet(
-        frame_name=fs.frame_name,
-        method=fs.method,
-        image_shape=fs.image_shape,
-        keypoints=filtered_kps,
-        descriptors=filtered_desc,
-    )
+def apply_grid_filter(fs: FeatureSet, *args, **kwargs) -> FeatureSet:
+    """Deprecated in deep-only mode. Returned unchanged for compatibility."""
+    return fs
 
 
 def draw_keypoints(

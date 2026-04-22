@@ -53,9 +53,6 @@ from .transfer import (
     DEFAULT_PATCH_SIZE,
     DEFAULT_STEP,
     compute_epipolar_line,
-    sample_line_in_image,
-    ncc,
-    transfer_point,
     draw_transfer,
 )
 from .local_transfer import (
@@ -109,9 +106,6 @@ __all__ = [
     "DEFAULT_PATCH_SIZE",
     "DEFAULT_STEP",
     "compute_epipolar_line",
-    "sample_line_in_image",
-    "ncc",
-    "transfer_point",
     "draw_transfer",
     "transfer_point_local_affine",
     "DEFAULT_EPIPOLAR_BAND_PX",

@@ -1,13 +1,4 @@
-"""Phase 4 pairwise descriptor matching (Milestone 2 Step 2).
-
-Returns tentative matches only (knnMatch + Lowe's ratio test).
-No geometric filtering (RANSAC / fundamental matrix) is done here — those
-are responsibilities of the next phase.
-
-Data structures are shaped so that handoff to geometric estimation is a
-one-liner: `result.points_a(fs_a), result.points_b(fs_b)` return the
-`(N, 2)` float32 arrays that `cv2.findFundamentalMat` consumes directly.
-"""
+"""Phase 4 pairwise descriptor matching (SuperPoint + LightGlue only)."""
 
 from __future__ import annotations
 
@@ -18,13 +9,13 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
-from .features import FeatureSet, apply_grid_filter
+from .features import FeatureSet
 from .frame_loader import Frame
 
 
-SUPPORTED_MATCHERS = ("flann", "bf")
-SUPPORTED_PIPELINES = ("sift", "superpoint")
-DEFAULT_RATIO = 0.75
+SUPPORTED_MATCHERS = ("lightglue",)
+SUPPORTED_PIPELINES = ("superpoint",)
+DEFAULT_RATIO = 0.0
 
 
 @dataclass
@@ -89,160 +80,41 @@ class FrameMatchResult:
                            for m in self.tentative_matches]).reshape(-1, 2)
 
 
-def _make_matcher(method: str, descriptor_type: str = "float"):
-    """Instantiate a matcher.
-
-    `descriptor_type`:
-      - "float"  → SIFT-like L2 descriptors (default)
-      - "binary" → AKAZE/ORB Hamming descriptors
-    """
-    m = method.lower()
-    if m == "flann":
-        if descriptor_type == "float":
-            FLANN_INDEX_KDTREE = 1
-            index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-        else:
-            FLANN_INDEX_LSH = 6
-            index_params = dict(algorithm=FLANN_INDEX_LSH,
-                                table_number=6, key_size=12, multi_probe_level=1)
-        search_params = dict(checks=50)
-        return cv2.FlannBasedMatcher(index_params, search_params)
-    if m == "bf":
-        norm = cv2.NORM_L2 if descriptor_type == "float" else cv2.NORM_HAMMING
-        return cv2.BFMatcher(norm, crossCheck=False)
-    raise ValueError(f"Unsupported matcher {method!r}; expected one of {SUPPORTED_MATCHERS}")
-
-
-def _apply_ratio_test(
-    knn_matches: Sequence[Sequence[cv2.DMatch]],
-    ratio: float,
-) -> List[cv2.DMatch]:
-    kept: List[cv2.DMatch] = []
-    for pair in knn_matches:
-        if len(pair) < 2:
-            continue
-        m, n = pair[0], pair[1]
-        if m.distance < ratio * n.distance:
-            kept.append(m)
-    return kept
-
-
 def match_pair(
     fs_a: FeatureSet,
     fs_b: FeatureSet,
     idx_a: int = -1,
     idx_b: int = -1,
-    method: str = "flann",
+    method: str = "lightglue",
     ratio: float = DEFAULT_RATIO,
-    mutual: bool = False,
-    grid_filter: bool = True,
+    mutual: bool = True,
+    grid_filter: bool = False,
     grid_rows: int = 4,
     grid_cols: int = 5,
     grid_max_per_cell: int = 15,
-    pipeline: str = "sift",
+    pipeline: str = "superpoint",
 ) -> FrameMatchResult:
-    """Match descriptors of two frames.
-
-    Two pipelines are supported via the `pipeline` argument (default "sift"):
-
-    * `pipeline="sift"`  : classical SIFT/AKAZE descriptors + FLANN/BF +
-        Lowe's ratio test (+ optional mutual-best + spatial grid filter).
-        All existing kwargs (`method`, `ratio`, `mutual`, `grid_filter`,
-        `grid_*`) apply and behave exactly as before.
-    * `pipeline="superpoint"` : LightGlue assignment on SuperPoint
-        descriptors. Bypasses FLANN/BF; the `method` / `ratio` / `mutual`
-        / `grid_*` kwargs are ignored (LightGlue has its own learned
-        assignment). Delegates to `src.deep_matching.match_pair_deep`.
-
-    When `grid_filter=True` (default, SIFT path only), each FeatureSet is
-    spatially sub-sampled with `apply_grid_filter()` before matching so
-    every grid cell contributes equally. Original FeatureSets are never
-    mutated; match indices are relative to the filtered copies stored in
-    `FrameMatchResult.fs_a_filtered` / `.fs_b_filtered`.
-    """
-    if pipeline.lower() == "superpoint":
-        # Lazy import keeps torch / lightglue optional.
-        from .deep_matching import match_pair_deep
-        return match_pair_deep(fs_a, fs_b, idx_a=idx_a, idx_b=idx_b)
-
-    if pipeline.lower() != "sift":
-        raise ValueError(
-            f"Unsupported pipeline {pipeline!r}; expected one of {SUPPORTED_PIPELINES}."
-        )
-
-    if fs_a.descriptors is None or fs_b.descriptors is None:
-        raise ValueError("Both FeatureSets must have descriptors.")
-    if fs_a.num_keypoints < 2 or fs_b.num_keypoints < 2:
-        raise ValueError("Need at least 2 keypoints per frame for knnMatch(k=2).")
-
-    if grid_filter:
-        fa = apply_grid_filter(fs_a, grid_rows=grid_rows, grid_cols=grid_cols,
-                               max_per_cell=grid_max_per_cell)
-        fb = apply_grid_filter(fs_b, grid_rows=grid_rows, grid_cols=grid_cols,
-                               max_per_cell=grid_max_per_cell)
-    else:
-        fa, fb = fs_a, fs_b
-
-    if fa.num_keypoints < 2 or fb.num_keypoints < 2:
-        return FrameMatchResult(
-            idx_a=idx_a, idx_b=idx_b,
-            name_a=fs_a.frame_name, name_b=fs_b.frame_name,
-            num_desc_a=fs_a.num_keypoints, num_desc_b=fs_b.num_keypoints,
-            num_raw_matches=0, ratio_threshold=ratio,
-            matcher=method.lower(), mutual=mutual,
-            grid_filtered=grid_filter,
-            tentative_matches=[],
-            fs_a_filtered=fa, fs_b_filtered=fb,
-        )
-
-    descriptor_type = "float" if fa.descriptors.dtype != np.uint8 else "binary"
-    matcher = _make_matcher(method, descriptor_type=descriptor_type)
-
-    knn_ab = matcher.knnMatch(fa.descriptors, fb.descriptors, k=2)
-    tentative = _apply_ratio_test(knn_ab, ratio)
-
-    if mutual and tentative:
-        knn_ba = matcher.knnMatch(fb.descriptors, fa.descriptors, k=2)
-        reverse = _apply_ratio_test(knn_ba, ratio)
-        reverse_best: Dict[int, int] = {m.queryIdx: m.trainIdx for m in reverse}
-        tentative = [
-            m for m in tentative
-            if reverse_best.get(m.trainIdx, -1) == m.queryIdx
-        ]
-
-    return FrameMatchResult(
-        idx_a=idx_a, idx_b=idx_b,
-        name_a=fs_a.frame_name, name_b=fs_b.frame_name,
-        num_desc_a=fs_a.num_keypoints, num_desc_b=fs_b.num_keypoints,
-        num_raw_matches=len(knn_ab),
-        ratio_threshold=ratio,
-        matcher=method.lower(),
-        mutual=mutual,
-        grid_filtered=grid_filter,
-        tentative_matches=tentative,
-        fs_a_filtered=fa,
-        fs_b_filtered=fb,
-    )
+    """Match descriptors of two frames using LightGlue only."""
+    if pipeline.lower() != "superpoint":
+        raise ValueError("Only 'superpoint' pipeline is supported.")
+    from .deep_matching import match_pair_deep
+    return match_pair_deep(fs_a, fs_b, idx_a=idx_a, idx_b=idx_b)
 
 
 def match_frame_pairs(
     feature_sets: Sequence[FeatureSet],
     pairs: Sequence[Tuple[int, int]],
-    method: str = "flann",
+    method: str = "lightglue",
     ratio: float = DEFAULT_RATIO,
-    mutual: bool = False,
-    grid_filter: bool = True,
+    mutual: bool = True,
+    grid_filter: bool = False,
     grid_rows: int = 4,
     grid_cols: int = 5,
     grid_max_per_cell: int = 15,
     progress: bool = False,
-    pipeline: str = "sift",
+    pipeline: str = "superpoint",
 ) -> List[FrameMatchResult]:
-    """Run `match_pair` over a list of (i, j) index pairs.
-
-    Pass `pipeline="superpoint"` to route all pairs through LightGlue
-    (see `match_pair` for the full behavioral contract of each pipeline).
-    """
+    """Run `match_pair` over a list of (i, j) index pairs."""
     results: List[FrameMatchResult] = []
     for k, (i, j) in enumerate(pairs):
         if i == j:
@@ -258,14 +130,8 @@ def match_frame_pairs(
         )
         results.append(res)
         if progress:
-            if pipeline.lower() == "superpoint":
-                print(f"  [{k + 1:3d}/{len(pairs)}] ({i},{j})  "
-                      f"lightglue_matches={res.num_tentative:4d}")
-            else:
-                print(f"  [{k + 1:3d}/{len(pairs)}] ({i},{j})  "
-                      f"raw={res.num_raw_matches:5d}  "
-                      f"kept={res.num_tentative:4d}  "
-                      f"({100 * res.ratio_kept:5.1f}%)")
+            print(f"  [{k + 1:3d}/{len(pairs)}] ({i},{j})  "
+                  f"lightglue_matches={res.num_tentative:4d}")
     return results
 
 
