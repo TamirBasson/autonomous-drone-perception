@@ -56,7 +56,7 @@ Deep-only computer vision pipeline for:
 ## Architecture
 
 <div style="text-align: center;">
-  <img src="assets/architecture.jpg" alt="Architecture diagram" width="600" />
+  <img src="assets/architecture.jpeg" alt="Architecture diagram" width="600" />
 </div>
 
 The system is organized as a linear processing pipeline with one interactive
