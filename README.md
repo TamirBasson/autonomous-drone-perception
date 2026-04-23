@@ -2,24 +2,6 @@
 
 ## Installation
 
-Virtual environment setup is recommended on all platforms:
-
-```bash
-# Windows PowerShell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-```bash
-# macOS / Linux
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Quick Start
-
 1. Install `Git` and `Python 3.10+`.
 2. Clone the repository and enter the project folder:
 
@@ -28,39 +10,33 @@ git clone https://github.com/TamirBasson/Xtend_challenge_1.git
 cd Xtend_challenge_1
 ```
 
-3. Create and activate a virtual environment (recommended on every machine):
+3. Create and activate a virtual environment:
 
 ```bash
 # Windows PowerShell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
 ```bash
 # macOS / Linux
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-4. Upgrade `pip`:
-
-```bash
-python -m pip install --upgrade pip
-```
-
-5. Install the project dependencies:
-
-```bash
+python3 -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-6. Run the recommended interactive transfer command from the repository root:
+If your system does not expose `python`, use `py` on Windows or `python3` on macOS/Linux.
+
+## Quick Start
+
+Run the recommended interactive transfer command from the repository root:
 
 ```bash
 python scripts/main_interactive_transfer.py --method superpoint --ransac-method usac_magsac --threshold 0.70 --min-inliers 15 --epipolar-band 10 --source-index 1
 ```
-
-If your system does not expose `python`, use `py` on Windows or `python3` on macOS/Linux for the same commands above.
 
 Parameter guide:
 - `--method superpoint`: uses the SuperPoint + LightGlue pipeline (the only supported method - State of the art models).
@@ -77,9 +53,19 @@ Deep-only computer vision pipeline for:
 - RANSAC fundamental matrix estimation
 - interactive local-affine point transfer (K-nearest deep matches to the click)
 
+## Example Results
+
+<p align="center">
+  <img src="assets/target_00_2026-02-15_16-25-03_04569.png" alt="Target 00 example" width="23%" />
+  <img src="assets/target_01_2026-02-15_16-25-03_10474.png" alt="Target 01 example" width="23%" />
+  <img src="assets/target_06_2026-02-15_16-25-03_10305.png" alt="Target 06 example" width="23%" />
+  <img src="assets/target_11_2026-02-15_16-35-56_07849.png" alt="Target 11 example" width="23%" />
+  <img src="assets/target_12_2026-02-15_16-35-56_09763.png" alt="Target 12 example" width="23%" />
+</p>
+
 ## Architecture
 
-![Architecture diagram](assets/architecture.jpg)
+<img src="assets/architecture.jpg" alt="Architecture diagram" width="700" />
 
 The system is organized as a linear processing pipeline with one interactive
 endpoint:
