@@ -1,4 +1,4 @@
-# Xtend Challenge 1 - SuperPoint + LightGlue
+# autonomous-drone-perception - SuperPoint + LightGlue
 
 ## Installation
 
@@ -7,7 +7,7 @@
 
 ```bash
 git clone https://github.com/TamirBasson/Xtend_challenge_1.git
-cd Xtend_challenge_1
+cd autonomous-drone-perception
 ```
 
 3. Create and activate a virtual environment:
